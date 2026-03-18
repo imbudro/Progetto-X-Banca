@@ -29,10 +29,9 @@ class CertificazioniController
     $params = json_decode($request -> getBody(), true);
     $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'scuola');
 $result = $mysqli_connection->query("
-    INSERT INTO `certificazioni` (`id`, `alunno_id`, `titolo`, `votazione`, `ente`) 
+    INSERT INTO `certificazioni` (`alunno_id`, `titolo`, `votazione`, `ente`) 
     VALUES (
-        '" . $params['id'] . "',
-        '" . $params['alunno_id'] . "',
+        '" . $args['id'] . "',
         '" . $params['titolo'] . "',
         '" . $params['votazione'] . "',
         '" . $params['ente'] . "'
@@ -54,12 +53,15 @@ $result = $mysqli_connection->query("
   public function update(Request $request, Response $response, $args){
     $params = json_decode($request -> getBody(), true);
     $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'scuola');
-    $result = $mysqli_connection->query( $result = $mysqli_connection->query(
-      "UPDATE `alunni` 
-       SET `nome` = '" . $params['nome'] . "', 
-           `cognome` = '" . $params['cognome'] . "' 
-       WHERE `id` = " . $args['id']
-  ));
+  
+  $result = $mysqli_connection->query(
+    "UPDATE `certificazioni` 
+     SET `alunno_id` = '" . $args['id'] . "',
+         `titolo` = '" . $params['titolo'] . "',
+         `votazione` = '" . $params['votazione'] . "',
+         `ente` = '" . $params['ente'] . "'
+     WHERE `id` = " . $args['cid']
+);
     if($result){
       $results['message'] = "lo studente è aggiornato  " ;
     }
@@ -75,7 +77,7 @@ $result = $mysqli_connection->query("
 
   public function destroy(Request $request, Response $response, $args){
     $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'scuola');
-    $result = $mysqli_connection->query("DELETE FROM alunni WHERE id=".$args['id']);
+    $result = $mysqli_connection->query("DELETE FROM certificazioni WHERE alunno_id=".$args['id'] . " and id=" . $args['cid']);
     if($result){
       $results['message'] = "lo studente " . $args['id']. " rimosso con successo" ;
     }

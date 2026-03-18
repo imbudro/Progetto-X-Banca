@@ -38,12 +38,10 @@ $app->get('/certificazioni/', "CertificazioniController:index");
 
 $app->get('/alunni/{id}/certificazioni', "CertificazioniController:show");
 
-$app->post('/certificazioni', "CertificazioniController:create");
+$app->post('/alunni/{id}/certificazioni', "CertificazioniController:create");
 
-// aggiorna
-#$app->put('/certificazioni/{id}', "CertificazioniController:update");
+$app->put('/alunni/{id}/certificazioni/{cid}', "CertificazioniController:update");
 
-// elimina
-#$app->delete('/certificazioni/{id}', "CertificazioniController:destroy");
+$app->delete('/alunni/{id}/certificazioni/{cid}', "CertificazioniController:destroy");
 
 $app->run();
