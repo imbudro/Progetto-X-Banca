@@ -21,22 +21,13 @@ $app->get('/hello/{name}', function (Request $request, Response $response, array
     return $response;
 });
 
-$app->get('/alunni/', "AlunniController:index");
-//GET
-$app->get('/alunni/{id}', "AlunniController:show");
-//POST
-$app->post('/alunni', "AlunniController:create");
-//PUT
-$app->put('/alunni/{id}', "AlunniController:update");
-//DELETE
-$app->delete('/alunni/{id}', "AlunniController:destroy");
-
-
 
 
 $app->get('/certificazioni/', "CertificazioniController:index");
 
-$app->get('/alunni/{id}/certificazioni', "CertificazioniController:show");
+
+
+$app->get('/utente/{id_utente}/conto{id_conto}', "CertificazioniController:show");
 
 $app->post('/alunni/{id}/certificazioni', "CertificazioniController:create");
 
