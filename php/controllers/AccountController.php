@@ -2,26 +2,105 @@
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
-class CertificazioniController
+class AccountController
 {
+
+
   public function index(Request $request, Response $response, $args){
-    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'scuola');
-    $result = $mysqli_connection->query("SELECT * FROM certificazioni");
+    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
+    $result = $mysqli_connection->query("SELECT * FROM transactions");
     $results = $result->fetch_all(MYSQLI_ASSOC);
 
     $response->getBody()->write(json_encode($results));
     return $response->withHeader("Content-type", "application/json")->withStatus(200);
   }
   
-  
-  public function show(Request $request, Response $response, $args){
-    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'scuola');
-    $result = $mysqli_connection->query("SELECT * FROM certificazioni where alunno_id=".$args['id']);
+
+  public function getTransactions(Request $request, Response $response, $args){
+    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
+    $result = $mysqli_connection->query("SELECT * FROM transactions where account_id=".$args['id']);
     $results = $result->fetch_all(MYSQLI_ASSOC);
 
     $response->getBody()->write(json_encode($results));
     return $response->withHeader("Content-type", "application/json")->withStatus(200);
   }
+
+
+    public function getSingleTransaction(Request $request, Response $response, $args){
+    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
+    $result = $mysqli_connection->query("SELECT  * FROM transactions WHERE account_id=".$args['id'] . " and id_transaction=" . $args['tid']);
+    $results = $result->fetch_all(MYSQLI_ASSOC);
+
+    $response->getBody()->write(json_encode($results));
+    return $response->withHeader("Content-type", "application/json")->withStatus(200);
+  }
+
+
+    public function getBalance(Request $request, Response $response, $args){
+    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
+   $result = $mysqli_connection->query("
+        SELECT balance_after 
+        FROM transactions 
+        WHERE account_id = " . $args['id'] . " 
+        AND id_transaction = (
+            SELECT MAX(id_transaction) 
+            FROM transactions 
+            WHERE account_id = " . $args['id'] . "
+        )
+    ");    
+    $results = $result->fetch_all(MYSQLI_ASSOC);
+    $response->getBody()->write(json_encode($results));
+    return $response->withHeader("Content-type", "application/json")->withStatus(200);
+  }
+
+
+  
+
+
+
+    public function convertFiat(Request $request, Response $response, $args){
+    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
+   $amountQuery = $mysqli_connection->query("
+        SELECT balance_after 
+        FROM transactions 
+        WHERE account_id = " . $args['id'] . " 
+        AND id_transaction = (
+            SELECT MAX(id_transaction) 
+            FROM transactions 
+            WHERE account_id = " . $args['id'] . "
+        )
+    ");    
+
+    $currencyQuery = $mysqli_connection->query("
+        SELECT currency 
+        FROM accounts 
+        WHERE account_id = " . $args['id'] . " 
+    ");    
+
+    $quoteQuery ;
+
+      
+
+//   $result= function convert($currencyQuery, "USD", $amountQuery) {
+//   const api = "https://api.frankfurter.dev";
+//   return fetch(`${api}/v2/rate/${base}/${quote}`)
+//     .then((r) => r.json())
+//     .then((d) => (amount * d.rate).toFixed(2));
+// };
+    
+    $results = $result->fetch_all(MYSQLI_ASSOC);
+
+    $response->getBody()->write(json_encode($results));
+    return $response->withHeader("Content-type", "application/json")->withStatus(200);
+
+
+
+
+  }
+
+
+
+
 
 
 

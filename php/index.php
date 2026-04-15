@@ -1,12 +1,11 @@
 <?php
-use Slim\Factory\AppFactory;
 
+use Slim\Factory\AppFactory;
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
 require __DIR__ . '/vendor/autoload.php';
-require __DIR__ . '/controllers/AlunniController.php';
-require __DIR__ . '/controllers/CertificazioniController.php';
+require __DIR__ . '/controllers/AccountController.php';
 
 $app = AppFactory::create();
 
@@ -21,18 +20,65 @@ $app->get('/hello/{name}', function (Request $request, Response $response, array
     return $response;
 });
 
+$app->get('/accounts/', "AccountController:index");
 
 
-$app->get('/certificazioni/', "CertificazioniController:index");
+// =============================================
+// LISTA MOVIMENTI
+// =============================================
+$app->get('/accounts/{id}/transactions', 'AccountController:getTransactions');
+
+// =============================================
+// DETTAGLIO SINGOLO MOVIMENTO
+// =============================================
+$app->get('/accounts/{id}/transactions/{tid}', 'AccountController:getSingleTransaction');
+
+// =============================================
+// SALDO
+// =============================================
+$app->get('/accounts/{id}/balance', 'AccountController:getBalance');
+
+
+// =============================================
+// CONVERSIONE FIAT (Frankfurter)
+// =============================================
+$app->get('/accounts/{id}/balance/convert/fiat', 'AccountController:convertFiat');
+
+// =============================================
+// CONVERSIONE CRYPTO (Binance)
+// =============================================
+$app->get('/accounts/{id}/balance/convert/crypto', 'AccountController:convertCrypto');
 
 
 
-$app->get('/utente/{id_utente}/conto{id_conto}', "CertificazioniController:show");
 
-$app->post('/alunni/{id}/certificazioni', "CertificazioniController:create");
 
-$app->put('/alunni/{id}/certificazioni/{cid}', "CertificazioniController:update");
 
-$app->delete('/alunni/{id}/certificazioni/{cid}', "CertificazioniController:destroy");
+
+
+
+
+
+
+
+// =============================================
+// DEPOSITO
+// =============================================
+$app->post('/accounts/{id}/deposits', 'AccountController:deposit');
+
+// =============================================
+// PRELIEVO
+// =============================================
+$app->post('/accounts/{id}/withdrawals', 'AccountController:withdrawal');
+
+// =============================================
+// MODIFICA DESCRIZIONE MOVIMENTO
+// =============================================
+$app->put('/accounts/{id}/transactions/{tid}', 'AccountController:updateTransaction');
+
+// =============================================
+// ELIMINA MOVIMENTO (solo l'ultimo)
+// =============================================
+$app->delete('/accounts/{id}/transactions/{tid}', 'AccountController:deleteTransaction');
 
 $app->run();
