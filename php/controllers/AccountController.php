@@ -54,49 +54,89 @@ class AccountController
   }
 
 
-  
-
-
-
-    public function convertFiat(Request $request, Response $response, $args){
+public function convertFiat(Request $request, Response $response, $args){
     $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
-   $amountQuery = $mysqli_connection->query("
-        SELECT balance_after 
-        FROM transactions 
-        WHERE account_id = " . $args['id'] . " 
+
+    // Esegui la query per ottenere il saldo
+    $balance_result = $mysqli_connection->query("
+        SELECT balance_after
+        FROM transactions
+        WHERE account_id = " . $args['id'] . "
         AND id_transaction = (
-            SELECT MAX(id_transaction) 
-            FROM transactions 
+            SELECT MAX(id_transaction)
+            FROM transactions
             WHERE account_id = " . $args['id'] . "
         )
-    ");    
+    ");
 
-    $currencyQuery = $mysqli_connection->query("
-        SELECT currency 
-        FROM accounts 
-        WHERE account_id = " . $args['id'] . " 
-    ");    
 
-    $quoteQuery ;
 
-      
+    $from_result = $mysqli_connection->query("
+        SELECT currency
+        FROM accounts
+        WHERE id_account = " . $args['id'] . "
+    ");
 
-//   $result= function convert($currencyQuery, "USD", $amountQuery) {
-//   const api = "https://api.frankfurter.dev";
-//   return fetch(`${api}/v2/rate/${base}/${quote}`)
-//     .then((r) => r.json())
-//     .then((d) => (amount * d.rate).toFixed(2));
-// };
-    
-    $results = $result->fetch_all(MYSQLI_ASSOC);
+$from = $from_result->fetch_assoc()['currency'];
+        $balance = (float)$balance_result->fetch_row()[0]; 
 
-    $response->getBody()->write(json_encode($results));
+
+    $to = strtoupper(trim($request->getQueryParams()['to'] ?? ''));
+
+    $url = "https://api.frankfurter.dev/v1/latest?base={$from}&symbols={$to}";
+    $json = @file_get_contents($url);
+
+    if ($json === false) {
+        $response->getBody()->write(json_encode([
+            'error' => 'External exchange API unavailable'
+        ]));
+        return $response
+            ->withHeader('Content-Type', 'application/json')
+            ->withStatus(502);
+    }
+
+    $data = json_decode($json, true);
+
+    $rate      = (float)$data['rates'][$to];
+    $converted = round($balance * $rate, 2);
+
+    $response->getBody()->write(json_encode([
+        'converted_amount' => $converted,
+        'balance' => $balance, 
+        'cazzo' => $from
+    ]));
+
     return $response->withHeader("Content-type", "application/json")->withStatus(200);
+}
 
 
 
 
-  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

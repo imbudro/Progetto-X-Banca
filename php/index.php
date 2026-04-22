@@ -56,11 +56,6 @@ $app->get('/accounts/{id}/balance/convert/crypto', 'AccountController:convertCry
 
 
 
-
-
-
-
-
 // =============================================
 // DEPOSITO
 // =============================================
