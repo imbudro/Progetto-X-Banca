@@ -8,7 +8,7 @@ class AccountController
 
   public function index(Request $request, Response $response, $args){
     $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
-    $result = $mysqli_connection->query("SELECT * FROM transactions");
+    $result = $mysqli_connection->query("SELECT * FROM transactions " );
     $results = $result->fetch_all(MYSQLI_ASSOC);
 
     $response->getBody()->write(json_encode($results));
@@ -69,8 +69,6 @@ public function convertFiat(Request $request, Response $response, $args){
         )
     ");
 
-
-
     $from_result = $mysqli_connection->query("
         SELECT currency
         FROM accounts
@@ -116,190 +114,391 @@ $from = $from_result->fetch_assoc()['currency'];
 
 
 
+public function convertCrypto(Request $request, Response $response, $args){
+    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
+
+    // Esegui la query per ottenere il saldo
+    $balance_result = $mysqli_connection->query("
+        SELECT balance_after
+        FROM transactions
+        WHERE account_id = " . $args['id'] . "
+        AND id_transaction = (
+            SELECT MAX(id_transaction)
+            FROM transactions
+            WHERE account_id = " . $args['id'] . "
+        )
+    ");
+
+    $from_result = $mysqli_connection->query("
+        SELECT currency
+        FROM accounts
+        WHERE id_account = " . $args['id'] . "
+    ");
+
+$from = $from_result->fetch_assoc()['currency'];
+        $balance = (float)$balance_result->fetch_row()[0]; 
 
 
+    $to = strtoupper(trim($request->getQueryParams()['to'] ?? ''));
 
+    $url ="https://api.binance.com/api/v3/ticker/price?symbol={$to}{$from}";
 
+    $json = @file_get_contents($url);
 
+    $data = json_decode($json, true);
 
+     $rate = (float)$data['price'];
+        
+ 
+        $converted = round($balance / $rate, 8); 
 
+    $response->getBody()->write(json_encode([
+        'converted_amount' => $converted,
+        'balance' => $balance, 
+        'cazzo' => $to,
+                'cazzi' => $from,
 
+    ]));
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-  public function create(Request $request, Response $response, $args){
-    $params = json_decode($request -> getBody(), true);
-    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'scuola');
-$result = $mysqli_connection->query("
-    INSERT INTO `certificazioni` (`alunno_id`, `titolo`, `votazione`, `ente`) 
-    VALUES (
-        '" . $args['id'] . "',
-        '" . $params['titolo'] . "',
-        '" . $params['votazione'] . "',
-        '" . $params['ente'] . "'
-    );
-");    if($result){
-      $results['message'] = "  La certificazione e' stata inserita " ;
-    }
-    else{
-
-      $results['message'] = " lA certificazione NON e' stata inserita" ;
-    }
-
-    $response->getBody()->write(json_encode($results));
     return $response->withHeader("Content-type", "application/json")->withStatus(200);
-  }  
-
-  
-
-  public function update(Request $request, Response $response, $args){
-    $params = json_decode($request -> getBody(), true);
-    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'scuola');
-  
-  $result = $mysqli_connection->query(
-    "UPDATE `certificazioni` 
-     SET `alunno_id` = '" . $args['id'] . "',
-         `titolo` = '" . $params['titolo'] . "',
-         `votazione` = '" . $params['votazione'] . "',
-         `ente` = '" . $params['ente'] . "'
-     WHERE `id` = " . $args['cid']
-);
-    if($result){
-      $results['message'] = "lo studente è aggiornato  " ;
-    }
-    else{
-
-      $results['message'] = "lo studente NON è stato aggiornato " ;
-    }
-
-    $response->getBody()->write(json_encode($results));
-    return $response->withHeader("Content-type", "application/json")->withStatus(200);
-  }  
+}
 
 
-  public function destroy(Request $request, Response $response, $args){
-    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'scuola');
-    $result = $mysqli_connection->query("DELETE FROM certificazioni WHERE alunno_id=".$args['id'] . " and id=" . $args['cid']);
-    if($result){
-      $results['message'] = "lo studente " . $args['id']. " rimosso con successo" ;
-    }
-    else{
 
-      $results['message'] = "lo studente " . $args['id']. " NON è rimosso con successo" ;
-    }
-    $response->getBody()->write(json_encode($results));
+  // =============================================
+  // DEPOSITO
+  // =============================================
+  public function deposit(Request $request, Response $response, $args){
+    $params = json_decode($request->getBody(), true);
+    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
+
+    // 1. Recupero il saldo attuale (l'ultimo balance_after)
+    $balance_result = $mysqli_connection->query("
+        SELECT balance_after
+        FROM transactions
+        WHERE account_id = " . $args['id'] . "
+        AND id_transaction = (
+            SELECT MAX(id_transaction)
+            FROM transactions
+            WHERE account_id = " . $args['id'] . "
+        )
+    ");
     
+    $current_balance = (float)$balance_result->fetch_row()[0];
+  
+    // 2. Calcolo nuovo saldo
+    $amount = (float)$params['amount'];
+    $description = $params['description'] ?? 'Deposito';
+    $new_balance = $current_balance + $amount;
+
+    // 3. Inserisco il nuovo movimento
+    $result = $mysqli_connection->query("
+        INSERT INTO transactions (account_id, amount, description, balance_after) 
+        VALUES (
+            " . $args['id'] . ", 
+            " . $amount . ", 
+            '" . $description . "', 
+            " . $new_balance . "
+        )
+    ");
+
+    if($result){
+      $results['message'] = "Deposito di $amount effettuato con successo.";
+      $results['new_balance'] = $new_balance;
+    } else {
+      $results['message'] = "Errore durante il deposito.";
+    }
+
+    $response->getBody()->write(json_encode($results));
     return $response->withHeader("Content-type", "application/json")->withStatus(200);
   }
 
-public function convertCrypto(Request $request, Response $response, array $args){
-    // 1. Connessione al DB (nota il $ iniziale)
+
+
+
+
+  // =============================================
+  // PRELIEVO
+  // =============================================
+  public function withdrawal(Request $request, Response $response, $args){
+    $params = json_decode($request->getBody(), true);
     $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
-    
-    $accountId = (int)$args['id'];
-    $params = $request->getQueryParams();
-    $toCrypto = strtoupper(trim($params['to'] ?? ''));
-  
-    // 2. Validazione parametro 'to'
-    if (!$toCrypto) {
-        return $this->respondWithError($response, 400, 'Missing target cryptocurrency');
-    }
-  
-    // 3. Recupero il conto dal DB (USO PREPARE, NON QUERY, e metto il $)
-    $stmt = $mysqli_connection->prepare("SELECT id_account, currency FROM accounts WHERE id_account = ?");
-    $stmt->bind_param('i', $accountId);
-    $stmt->execute();
-    $result = $stmt->get_result();
-    $account = $result->fetch_assoc();
-  
-    if (!$account) {
-        return $this->respondWithError($response, 404, 'Account not found');
-    }
-  
-    $fromCurrency = strtoupper($account['currency']);
-  
-    // 4. Calcolo il saldo attuale (CAMBIATO $this->mysqli IN $mysqli_connection)
-    $stmt = $mysqli_connection->prepare("
-        SELECT
-            COALESCE(SUM(CASE WHEN type = 'deposit' THEN amount ELSE 0 END), 0) -
-            COALESCE(SUM(CASE WHEN type = 'withdrawal' THEN amount ELSE 0 END), 0) AS balance
-        FROM transactions
-        WHERE account_id = ?
+
+    // 1. Recupero il saldo attuale
+    $balance_result = $mysqli_connection->query("
+        SELECT balance_after 
+        FROM transactions 
+        WHERE account_id = " . $args['id'] . " 
+        ORDER BY id_transaction DESC LIMIT 1
     ");
-    $stmt->bind_param('i', $accountId);
-    $stmt->execute();
-    $row = $stmt->get_result()->fetch_assoc();
-    $balance = (float)($row['balance'] ?? 0);
-  
-    // 5. Costruisco la coppia di mercato per Binance (es. BTCEUR)
-    $marketSymbol = $toCrypto . $fromCurrency;
-  
-    // 6. Chiamata all'API Binance (ticker/price)
-    $url = "https://api.binance.com/api/v3/ticker/price?symbol=" . $marketSymbol;
-    $json = @file_get_contents($url);
-  
-    if ($json === false) {
-        return $this->respondWithError($response, 502, 'External Binance API unavailable');
+    
+   
+      $current_balance = (float)$balance_result->fetch_row()[0];
+    
+
+    $amount = (float)$params['amount'];
+    $description = $params['description'] ?? 'Prelievo';
+
+    // (Opzionale) Controllo se ci sono fondi sufficienti
+    if ($current_balance < $amount) {
+        $results['message'] = "Fondi insufficienti per effettuare il prelievo.";
+        $response->getBody()->write(json_encode($results));
+        return $response->withHeader("Content-type", "application/json")->withStatus(400); // Bad Request
     }
-  
-    $data = json_decode($json, true);
-  
-    // 7. Verifico che la coppia esista (gestione errore -1121 di Binance)
-    if (isset($data['code']) && $data['code'] === -1121) {
-        return $this->respondWithError($response, 400, 'Invalid symbol or unsupported crypto/fiat pair');
+
+    // 2. Calcolo nuovo saldo
+    $new_balance = $current_balance - $amount;
+
+    // 3. Inserisco il movimento (registro l'amount in negativo per coerenza, se preferisci)
+    $result = $mysqli_connection->query("
+        INSERT INTO transactions (account_id, amount, description, balance_after) 
+        VALUES (
+            " . $args['id'] . ", 
+            -" . $amount . ", 
+            '" . $description . "', 
+            " . $new_balance . "
+        )
+    ");
+
+    if($result){
+      $results['message'] = "Prelievo di $amount effettuato con successo.";
+      $results['new_balance'] = $new_balance;
+    } else {
+      $results['message'] = "Errore durante il prelievo.";
     }
+
+    $response->getBody()->write(json_encode($results));
+    return $response->withHeader("Content-type", "application/json")->withStatus(200);
+  }
+
+
+
+
+  // =============================================
+  // MODIFICA DESCRIZIONE MOVIMENTO
+  // =============================================
+  public function updateTransaction(Request $request, Response $response, $args){
+    $params = json_decode($request->getBody(), true);
+    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
   
-    // Verifica che il prezzo sia effettivamente presente
-    if (!isset($data['price'])) {
-        return $this->respondWithError($response, 502, 'Unexpected response from Binance API');
+    $description = $params['description'];
+
+    // Aggiorniamo SOLO la descrizione per non sballare i saldi (balance_after)
+    $result = $mysqli_connection->query("
+        UPDATE transactions 
+        SET description = '" . $description . "' 
+        WHERE account_id = " . $args['id'] . " 
+        AND id_transaction = " . $args['tid'] . "
+    ");
+
+    if($result){
+      $results['message'] = "Descrizione del movimento aggiornata con successo.";
+    } else {
+      $results['message'] = "Errore durante l'aggiornamento del movimento.";
     }
-  
-    $price = (float)$data['price'];
-  
-    // Sicurezza: evito la divisione per zero
-    if ($price <= 0) {
-        return $this->respondWithError($response, 502, 'Invalid price returned from Binance');
+
+    $response->getBody()->write(json_encode($results));
+    return $response->withHeader("Content-type", "application/json")->withStatus(200);
+  }
+
+  // =============================================
+  // ELIMINA MOVIMENTO (Solo l'ultimo)
+  // =============================================
+  public function deleteTransaction(Request $request, Response $response, $args){
+    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
+
+    // 1. Trovo qual è l'ID dell'ULTIMO movimento per questo conto
+    $max_result = $mysqli_connection->query("
+        SELECT MAX(id_transaction) 
+        FROM transactions 
+        WHERE account_id = " . $args['id'] . "
+    ");
+    $max_id = $max_result->fetch_row()[0];
+
+    // 2. Controllo se l'id passato corrisponde all'ultimo movimento
+    if ($args['tid'] != $max_id) {
+        $results['message'] = "Operazione negata: e' possibile eliminare solo l'ULTIMO movimento registrato per non corrompere lo storico dei saldi.";
+        $response->getBody()->write(json_encode($results));
+        return $response->withHeader("Content-type", "application/json")->withStatus(403); // Forbidden
     }
+
+    // 3. Se corrisponde, elimino
+    $result = $mysqli_connection->query("
+        DELETE FROM transactions 
+        WHERE account_id = " . $args['id'] . " 
+        AND id_transaction = " . $args['tid'] . "
+    ");
+
+    if($result){
+      $results['message'] = "Ultimo movimento eliminato con successo.";
+    } else {
+      $results['message'] = "Errore durante l'eliminazione del movimento.";
+    }
+    
+    $response->getBody()->write(json_encode($results));
+    return $response->withHeader("Content-type", "application/json")->withStatus(200);
+  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+//   public function create(Request $request, Response $response, $args){
+//     $params = json_decode($request -> getBody(), true);
+//     $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'scuola');
+// $result = $mysqli_connection->query("
+//     INSERT INTO `certificazioni` (`alunno_id`, `titolo`, `votazione`, `ente`) 
+//     VALUES (
+//         '" . $args['id'] . "',
+//         '" . $params['titolo'] . "',
+//         '" . $params['votazione'] . "',
+//         '" . $params['ente'] . "'
+//     );
+// ");    if($result){
+//       $results['message'] = "  La certificazione e' stata inserita " ;
+//     }
+//     else{
+
+//       $results['message'] = " lA certificazione NON e' stata inserita" ;
+//     }
+
+//     $response->getBody()->write(json_encode($results));
+//     return $response->withHeader("Content-type", "application/json")->withStatus(200);
+//   }  
+
   
-    // 8. Calcolo la quantità di crypto (Saldo / Prezzo) arrotondata a 8 decimali
-    $convertedAmount = round($balance / $price, 8);
+
+//   public function update(Request $request, Response $response, $args){
+//     $params = json_decode($request -> getBody(), true);
+//     $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'scuola');
   
-    // 9. Costruisco la risposta di successo
-    $payload = [
-        'account_id'       => $accountId,
-        'provider'         => 'Binance',
-        'conversion_type'  => 'crypto',
-        'from_currency'    => $fromCurrency,
-        'to_crypto'        => $toCrypto,
-        'market_symbol'    => $marketSymbol,
-        'original_balance' => $balance,
-        'price'            => $price,
-        'converted_amount' => $convertedAmount
-    ];
-  
-    $response->getBody()->write(json_encode($payload, JSON_PRETTY_PRINT));
-  
-    return $response
-        ->withHeader('Content-Type', 'application/json')
-        ->withStatus(200);
-}}
+//   $result = $mysqli_connection->query(
+//     "UPDATE `certificazioni` 
+//      SET `alunno_id` = '" . $args['id'] . "',
+//          `titolo` = '" . $params['titolo'] . "',
+//          `votazione` = '" . $params['votazione'] . "',
+//          `ente` = '" . $params['ente'] . "'
+//      WHERE `id` = " . $args['cid']
+// );
+//     if($result){
+//       $results['message'] = "lo studente è aggiornato  " ;
+//     }
+//     else{
+
+//       $results['message'] = "lo studente NON è stato aggiornato " ;
+//     }
+
+//     $response->getBody()->write(json_encode($results));
+//     return $response->withHeader("Content-type", "application/json")->withStatus(200);
+//   }  
+
+
+//   public function destroy(Request $request, Response $response, $args){
+//     $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'scuola');
+//     $result = $mysqli_connection->query("DELETE FROM certificazioni WHERE alunno_id=".$args['id'] . " and id=" . $args['cid']);
+//     if($result){
+//       $results['message'] = "lo studente " . $args['id']. " rimosso con successo" ;
+//     }
+//     else{
+
+//       $results['message'] = "lo studente " . $args['id']. " NON è rimosso con successo" ;
+//     }
+//     $response->getBody()->write(json_encode($results));
+    
+//     return $response->withHeader("Content-type", "application/json")->withStatus(200);
+//   }
+}
 
 
 
