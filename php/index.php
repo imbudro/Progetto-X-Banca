@@ -20,60 +20,35 @@ $app->get('/hello/{name}', function (Request $request, Response $response, array
     return $response;
 });
 
+
+//MOSTRA TUTTI GLI ACCOUNT
 $app->get('/accounts/', "AccountController:index");
 
-
-// =============================================
 // LISTA MOVIMENTI
-// =============================================
 $app->get('/accounts/{id}/transactions', 'AccountController:getTransactions');
 
-// =============================================
 // DETTAGLIO SINGOLO MOVIMENTO
-// =============================================
 $app->get('/accounts/{id}/transactions/{tid}', 'AccountController:getSingleTransaction');
 
-// =============================================
 // SALDO
-// =============================================
 $app->get('/accounts/{id}/balance', 'AccountController:getBalance');
 
-
-// =============================================
 // CONVERSIONE FIAT (Frankfurter)
-// =============================================
 $app->get('/accounts/{id}/balance/convert/fiat', 'AccountController:convertFiat');
 
-// =============================================
 // CONVERSIONE CRYPTO (Binance)
-// =============================================
 $app->get('/accounts/{id}/balance/convert/crypto', 'AccountController:convertCrypto');
 
-
-
-
-
-
-
-
-// =============================================
 // DEPOSITO
-// =============================================
 $app->post('/accounts/{id}/deposits', 'AccountController:deposit');
 
-// =============================================
 // PRELIEVO
-// =============================================
 $app->post('/accounts/{id}/withdrawals', 'AccountController:withdrawal');
 
-// =============================================
 // MODIFICA DESCRIZIONE MOVIMENTO
-// =============================================
 $app->put('/accounts/{id}/transactions/{tid}', 'AccountController:updateTransaction');
 
-// =============================================
-// ELIMINA MOVIMENTO (solo l'ultimo)
-// =============================================
+// ELIMINA MOVIMENTO 
 $app->delete('/accounts/{id}/transactions/{tid}', 'AccountController:deleteTransaction');
 
 $app->run();

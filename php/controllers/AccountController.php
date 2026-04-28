@@ -1,505 +1,380 @@
 <?php
+
 use Psr\Http\Message\ResponseInterface as Response;
 use Psr\Http\Message\ServerRequestInterface as Request;
 
 class AccountController
 {
+    // Connessione al database.
+    private function getConnection(): mysqli
+    {
+        return new mysqli('my_mariadb', 'root', 'ciccio', 'banking');
+    }
 
+    // Risposta JSON standardizzata.
+    private function jsonResponse(Response $response, array $payload, int $status): Response
+    {
+        $response->getBody()->write(json_encode($payload));
+        return $response->withHeader('Content-Type', 'application/json')->withStatus($status);
+    }
 
-  public function index(Request $request, Response $response, $args){
-    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
-    $result = $mysqli_connection->query("SELECT * FROM transactions " );
-    $results = $result->fetch_all(MYSQLI_ASSOC);
+    // Verifica esistenza account.
+    private function accountExists(mysqli $connection, $accountId): bool
+    {
+        $check = $connection->query("SELECT id_account FROM accounts WHERE id_account = " . $accountId);
+        return $check && $check->num_rows > 0;
+    }
 
-    $response->getBody()->write(json_encode($results));
-    return $response->withHeader("Content-type", "application/json")->withStatus(200);
-  }
-  
+    // Verifica esistenza transazione per account.
+    private function transactionExists(mysqli $connection, $accountId, $transactionId): bool
+    {
+        $check = $connection->query("
+            SELECT id_transaction FROM transactions
+            WHERE account_id = " . $accountId . " AND id_transaction = " . $transactionId . "
+        ");
+        return $check && $check->num_rows > 0;
+    }
 
-  public function getTransactions(Request $request, Response $response, $args){
-    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
-    $result = $mysqli_connection->query("SELECT * FROM transactions where account_id=".$args['id']);
-    $results = $result->fetch_all(MYSQLI_ASSOC);
+    // Recupera ultimo saldo (ultimo balance_after disponibile).
+    private function getLatestBalance(mysqli $connection, $accountId): float
+    {
+        $result = $connection->query("
+            SELECT balance_after
+            FROM transactions
+            WHERE account_id = " . $accountId . "
+            AND id_transaction = (
+                SELECT MAX(id_transaction)
+                FROM transactions
+                WHERE account_id = " . $accountId . "
+            )
+        ");
 
-    $response->getBody()->write(json_encode($results));
-    return $response->withHeader("Content-type", "application/json")->withStatus(200);
-  }
+        if (!$result || $result->num_rows === 0) {
+            return 0.0;
+        }
 
+        return (float)$result->fetch_row()[0];
+    }
 
-    public function getSingleTransaction(Request $request, Response $response, $args){
-    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
-    $result = $mysqli_connection->query("SELECT  * FROM transactions WHERE account_id=".$args['id'] . " and id_transaction=" . $args['tid']);
-    $results = $result->fetch_all(MYSQLI_ASSOC);
+    // Recupera valuta dell'account.
+    private function getAccountCurrency(mysqli $connection, $accountId): ?string
+    {
+        $result = $connection->query("
+            SELECT currency
+            FROM accounts
+            WHERE id_account = " . $accountId . "
+        ");
 
-    $response->getBody()->write(json_encode($results));
-    return $response->withHeader("Content-type", "application/json")->withStatus(200);
-  }
+        if (!$result || $result->num_rows === 0) {
+            return null;
+        }
 
+        return $result->fetch_assoc()['currency'];
+    }
 
-    public function getBalance(Request $request, Response $response, $args){
-    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
-   $result = $mysqli_connection->query("
-        SELECT balance_after 
-        FROM transactions 
-        WHERE account_id = " . $args['id'] . " 
-        AND id_transaction = (
-            SELECT MAX(id_transaction) 
-            FROM transactions 
+    // MOSTRA TUTTI GLI ACCOUNT (transazioni).
+    public function index(Request $request, Response $response, $args)
+    {
+        $connection = $this->getConnection();
+        $result = $connection->query("SELECT * FROM transactions");
+        $results = $result->fetch_all(MYSQLI_ASSOC);
+
+        return $this->jsonResponse($response, $results, 200);
+    }
+
+    // LISTA MOVIMENTI di un account (mantiene i controlli originali).
+    public function getTransactions(Request $request, Response $response, $args)
+    {
+        $connection = $this->getConnection();
+
+        if (!$this->accountExists($connection, $args['id'])) {
+            return $this->jsonResponse($response, ['error' => 'Account not found'], 404);
+        }
+
+        if (!$this->transactionExists($connection, $args['id'], $args['tid'])) {
+            return $this->jsonResponse($response, ['error' => 'Transaction not found'], 404);
+        }
+
+        $result = $connection->query("SELECT * FROM transactions WHERE account_id=" . $args['id']);
+        $results = $result->fetch_all(MYSQLI_ASSOC);
+
+        return $this->jsonResponse($response, $results, 200);
+    }
+
+    // DETTAGLIO singolo movimento.
+    public function getSingleTransaction(Request $request, Response $response, $args)
+    {
+        $connection = $this->getConnection();
+
+        $result = $connection->query("
+            SELECT * FROM transactions
+            WHERE account_id=" . $args['id'] . " AND id_transaction=" . $args['tid']);
+        $results = $result->fetch_all(MYSQLI_ASSOC);
+
+        return $this->jsonResponse($response, $results, 200);
+    }
+
+    // SALDO attuale dell'account.
+    public function getBalance(Request $request, Response $response, $args)
+    {
+        $connection = $this->getConnection();
+
+        if (!$this->accountExists($connection, $args['id'])) {
+            return $this->jsonResponse($response, ['error' => 'Account not found'], 404);
+        }
+
+        $result = $connection->query("
+            SELECT balance_after
+            FROM transactions
             WHERE account_id = " . $args['id'] . "
-        )
-    ");    
-    $results = $result->fetch_all(MYSQLI_ASSOC);
-    $response->getBody()->write(json_encode($results));
-    return $response->withHeader("Content-type", "application/json")->withStatus(200);
-  }
+            AND id_transaction = (
+                SELECT MAX(id_transaction)
+                FROM transactions
+                WHERE account_id = " . $args['id'] . "
+            )
+        ");
+        $results = $result->fetch_all(MYSQLI_ASSOC);
 
+        return $this->jsonResponse($response, $results, 200);
+    }
 
-public function convertFiat(Request $request, Response $response, $args){
-    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
+    // CONVERSIONE saldo in valuta FIAT tramite API Frankfurter.
+    public function convertFiat(Request $request, Response $response, $args)
+    {
+        $connection = $this->getConnection();
 
-    // Esegui la query per ottenere il saldo
-    $balance_result = $mysqli_connection->query("
-        SELECT balance_after
-        FROM transactions
-        WHERE account_id = " . $args['id'] . "
-        AND id_transaction = (
+        if (!$this->accountExists($connection, $args['id'])) {
+            return $this->jsonResponse($response, ['error' => 'Account not found'], 404);
+        }
+
+        $from = $this->getAccountCurrency($connection, $args['id']);
+        $balance = $this->getLatestBalance($connection, $args['id']);
+        $to = strtoupper(trim($request->getQueryParams()['to'] ?? ''));
+
+        $url = "https://api.frankfurter.dev/v1/latest?base={$from}&symbols={$to}";
+        $json = @file_get_contents($url);
+
+        if ($json === false) {
+            return $this->jsonResponse($response, ['error' => 'External exchange API unavailable'], 502);
+        }
+
+        $data = json_decode($json, true);
+
+        if (!isset($data['rates'][$to])) {
+            return $this->jsonResponse($response, ['error' => 'Target currency not supported'], 400);
+        }
+
+        $rate = (float)$data['rates'][$to];
+        $converted = round($balance * $rate, 2);
+
+        return $this->jsonResponse($response, [
+            'converted_amount' => $converted,
+            'balance' => $balance
+        ], 200);
+    }
+
+    // CONVERSIONE saldo in crypto tramite API Binance.
+    public function convertCrypto(Request $request, Response $response, $args)
+    {
+        $connection = $this->getConnection();
+
+        if (!$this->accountExists($connection, $args['id'])) {
+            return $this->jsonResponse($response, ['error' => 'Account not found'], 404);
+        }
+
+        $balanceResult = $connection->query("
+            SELECT balance_after
+            FROM transactions
+            WHERE account_id = " . $args['id'] . "
+            AND id_transaction = (
+                SELECT MAX(id_transaction)
+                FROM transactions
+                WHERE account_id = " . $args['id'] . "
+            )
+        ");
+
+        $from = $this->getAccountCurrency($connection, $args['id']);
+        $to = strtoupper(trim($request->getQueryParams()['to'] ?? ''));
+
+        // Mantiene il comportamento originale: inizializzazione e lettura condizionata da result set.
+        $balance = 0.0;
+        if ($balanceResult && $balanceResult->num_rows > 0) {
+            $balance = (float)$balanceResult->fetch_row()[0];
+        }
+
+        $url = "https://api.binance.com/api/v3/ticker/price?symbol={$to}{$from}";
+        $json = @file_get_contents($url);
+        $data = json_decode($json, true);
+
+        if (!isset($data['price'])) {
+            return $this->jsonResponse($response, ['error' => 'Invalid cryptocurrency pair or symbol not supported'], 400);
+        }
+
+        $rate = (float)$data['price'];
+        $converted = round($balance / $rate, 8);
+
+        return $this->jsonResponse($response, [
+            'converted_amount' => $converted,
+            'balance' => $balance,
+           
+        ], 200);
+    }
+
+    // DEPOSITO: valida importo, calcola nuovo saldo, inserisce movimento.
+    public function deposit(Request $request, Response $response, $args)
+    {
+        $params = json_decode($request->getBody(), true);
+        $connection = $this->getConnection();
+
+        if (!$this->accountExists($connection, $args['id'])) {
+            return $this->jsonResponse($response, ['error' => 'Account not found'], 404);
+        }
+
+        if (!isset($params['amount']) || (float)$params['amount'] <= 0) {
+            return $this->jsonResponse($response, ['error' => 'Amount must be greater than 0'], 400);
+        }
+
+        $currentBalance = $this->getLatestBalance($connection, $args['id']);
+        $amount = (float)$params['amount'];
+        $description = $params['description'] ?? 'Deposito';
+        $newBalance = $currentBalance + $amount;
+
+        $result = $connection->query("
+            INSERT INTO transactions (account_id, amount, description, balance_after)
+            VALUES (
+                " . $args['id'] . ",
+                " . $amount . ",
+                '" . $description . "',
+                " . $newBalance . "
+            )
+        ");
+
+        if ($result) {
+            $results['message'] = "Deposito di $amount effettuato con successo.";
+            $results['new_balance'] = $newBalance;
+        } else {
+            $results['message'] = "Errore durante il deposito.";
+        }
+
+        return $this->jsonResponse($response, $results, 200);
+    }
+
+    // PRELIEVO: valida importo/fondi, calcola saldo e inserisce movimento negativo.
+    public function withdrawal(Request $request, Response $response, $args)
+    {
+        $params = json_decode($request->getBody(), true);
+        $connection = $this->getConnection();
+
+        if (!$this->accountExists($connection, $args['id'])) {
+            return $this->jsonResponse($response, ['error' => 'Account not found'], 404);
+        }
+
+        if (!isset($params['amount']) || (float)$params['amount'] <= 0) {
+            return $this->jsonResponse($response, ['error' => 'Amount must be greater than 0'], 400);
+        }
+
+        $balanceResult = $connection->query("
+            SELECT balance_after
+            FROM transactions
+            WHERE account_id = " . $args['id'] . "
+            ORDER BY id_transaction DESC LIMIT 1
+        ");
+        $currentBalance = (float)$balanceResult->fetch_row()[0];
+
+        $amount = (float)$params['amount'];
+        $description = $params['description'] ?? 'Prelievo';
+
+        if ($currentBalance < $amount) {
+            return $this->jsonResponse($response, ['error' => 'Insufficient funds'], 422);
+        }
+
+        $newBalance = $currentBalance - $amount;
+
+        $result = $connection->query("
+            INSERT INTO transactions (account_id, amount, description, balance_after)
+            VALUES (
+                " . $args['id'] . ",
+                -" . $amount . ",
+                '" . $description . "',
+                " . $newBalance . "
+            )
+        ");
+
+        if ($result) {
+            $results['message'] = "Prelievo di $amount effettuato con successo.";
+            $results['new_balance'] = $newBalance;
+        } else {
+            $results['message'] = "Errore durante il prelievo.";
+        }
+
+        return $this->jsonResponse($response, $results, 200);
+    }
+
+    // MODIFICA descrizione di un movimento esistente.
+    public function updateTransaction(Request $request, Response $response, $args)
+    {
+        $params = json_decode($request->getBody(), true);
+        $connection = $this->getConnection();
+
+        if (!isset($params['description']) || trim($params['description']) === '') {
+            return $this->jsonResponse($response, ['error' => 'Description is required'], 400);
+        }
+
+        if (!$this->transactionExists($connection, $args['id'], $args['tid'])) {
+            return $this->jsonResponse($response, ['error' => 'Transaction not found'], 404);
+        }
+
+        $description = $params['description'];
+
+        $result = $connection->query("
+            UPDATE transactions
+            SET description = '" . $description . "'
+            WHERE account_id = " . $args['id'] . "
+            AND id_transaction = " . $args['tid'] . "
+        ");
+
+        if ($result) {
+            $results['message'] = "Descrizione del movimento aggiornata con successo.";
+        } else {
+            $results['message'] = "Errore durante l'aggiornamento del movimento.";
+        }
+
+        return $this->jsonResponse($response, $results, 200);
+    }
+
+    // ELIMINA movimento solo se è l'ultimo registrato per l'account.
+    public function deleteTransaction(Request $request, Response $response, $args)
+    {
+        $connection = $this->getConnection();
+
+        if (!$this->transactionExists($connection, $args['id'], $args['tid'])) {
+            return $this->jsonResponse($response, ['error' => 'Transaction not found'], 404);
+        }
+
+        $maxResult = $connection->query("
             SELECT MAX(id_transaction)
             FROM transactions
             WHERE account_id = " . $args['id'] . "
-        )
-    ");
+        ");
+        $maxId = $maxResult->fetch_row()[0];
 
-    $from_result = $mysqli_connection->query("
-        SELECT currency
-        FROM accounts
-        WHERE id_account = " . $args['id'] . "
-    ");
+        if ($args['tid'] != $maxId) {
+            $results['message'] = "Operazione negata: e' possibile eliminare solo l'ULTIMO movimento registrato per non corrompere lo storico dei saldi.";
+            return $this->jsonResponse($response, $results, 403);
+        }
 
-$from = $from_result->fetch_assoc()['currency'];
-        $balance = (float)$balance_result->fetch_row()[0]; 
-
-
-    $to = strtoupper(trim($request->getQueryParams()['to'] ?? ''));
-
-    $url = "https://api.frankfurter.dev/v1/latest?base={$from}&symbols={$to}";
-    $json = @file_get_contents($url);
-
-    if ($json === false) {
-        $response->getBody()->write(json_encode([
-            'error' => 'External exchange API unavailable'
-        ]));
-        return $response
-            ->withHeader('Content-Type', 'application/json')
-            ->withStatus(502);
-    }
-
-    $data = json_decode($json, true);
-
-    $rate      = (float)$data['rates'][$to];
-    $converted = round($balance * $rate, 2);
-
-    $response->getBody()->write(json_encode([
-        'converted_amount' => $converted,
-        'balance' => $balance, 
-        'cazzo' => $from
-    ]));
-
-    return $response->withHeader("Content-type", "application/json")->withStatus(200);
-}
-
-
-
-
-
-
-
-
-public function convertCrypto(Request $request, Response $response, $args){
-    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
-
-    // Esegui la query per ottenere il saldo
-    $balance_result = $mysqli_connection->query("
-        SELECT balance_after
-        FROM transactions
-        WHERE account_id = " . $args['id'] . "
-        AND id_transaction = (
-            SELECT MAX(id_transaction)
-            FROM transactions
+        $result = $connection->query("
+            DELETE FROM transactions
             WHERE account_id = " . $args['id'] . "
-        )
-    ");
+            AND id_transaction = " . $args['tid'] . "
+        ");
 
-    $from_result = $mysqli_connection->query("
-        SELECT currency
-        FROM accounts
-        WHERE id_account = " . $args['id'] . "
-    ");
+        if ($result) {
+            $results['message'] = "Ultimo movimento eliminato con successo.";
+        } else {
+            $results['message'] = "Errore durante l'eliminazione del movimento.";
+        }
 
-$from = $from_result->fetch_assoc()['currency'];
-        $balance = (float)$balance_result->fetch_row()[0]; 
-
-
-    $to = strtoupper(trim($request->getQueryParams()['to'] ?? ''));
-
-    $url ="https://api.binance.com/api/v3/ticker/price?symbol={$to}{$from}";
-
-    $json = @file_get_contents($url);
-
-    $data = json_decode($json, true);
-
-     $rate = (float)$data['price'];
-        
- 
-        $converted = round($balance / $rate, 8); 
-
-    $response->getBody()->write(json_encode([
-        'converted_amount' => $converted,
-        'balance' => $balance, 
-        'cazzo' => $to,
-                'cazzi' => $from,
-
-    ]));
-
-    return $response->withHeader("Content-type", "application/json")->withStatus(200);
+        return $this->jsonResponse($response, $results, 200);
+    }
 }
-
-
-
-  // =============================================
-  // DEPOSITO
-  // =============================================
-  public function deposit(Request $request, Response $response, $args){
-    $params = json_decode($request->getBody(), true);
-    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
-
-    // 1. Recupero il saldo attuale (l'ultimo balance_after)
-    $balance_result = $mysqli_connection->query("
-        SELECT balance_after
-        FROM transactions
-        WHERE account_id = " . $args['id'] . "
-        AND id_transaction = (
-            SELECT MAX(id_transaction)
-            FROM transactions
-            WHERE account_id = " . $args['id'] . "
-        )
-    ");
-    
-    $current_balance = (float)$balance_result->fetch_row()[0];
-  
-    // 2. Calcolo nuovo saldo
-    $amount = (float)$params['amount'];
-    $description = $params['description'] ?? 'Deposito';
-    $new_balance = $current_balance + $amount;
-
-    // 3. Inserisco il nuovo movimento
-    $result = $mysqli_connection->query("
-        INSERT INTO transactions (account_id, amount, description, balance_after) 
-        VALUES (
-            " . $args['id'] . ", 
-            " . $amount . ", 
-            '" . $description . "', 
-            " . $new_balance . "
-        )
-    ");
-
-    if($result){
-      $results['message'] = "Deposito di $amount effettuato con successo.";
-      $results['new_balance'] = $new_balance;
-    } else {
-      $results['message'] = "Errore durante il deposito.";
-    }
-
-    $response->getBody()->write(json_encode($results));
-    return $response->withHeader("Content-type", "application/json")->withStatus(200);
-  }
-
-
-
-
-
-  // =============================================
-  // PRELIEVO
-  // =============================================
-  public function withdrawal(Request $request, Response $response, $args){
-    $params = json_decode($request->getBody(), true);
-    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
-
-    // 1. Recupero il saldo attuale
-    $balance_result = $mysqli_connection->query("
-        SELECT balance_after 
-        FROM transactions 
-        WHERE account_id = " . $args['id'] . " 
-        ORDER BY id_transaction DESC LIMIT 1
-    ");
-    
-   
-      $current_balance = (float)$balance_result->fetch_row()[0];
-    
-
-    $amount = (float)$params['amount'];
-    $description = $params['description'] ?? 'Prelievo';
-
-    // (Opzionale) Controllo se ci sono fondi sufficienti
-    if ($current_balance < $amount) {
-        $results['message'] = "Fondi insufficienti per effettuare il prelievo.";
-        $response->getBody()->write(json_encode($results));
-        return $response->withHeader("Content-type", "application/json")->withStatus(400); // Bad Request
-    }
-
-    // 2. Calcolo nuovo saldo
-    $new_balance = $current_balance - $amount;
-
-    // 3. Inserisco il movimento (registro l'amount in negativo per coerenza, se preferisci)
-    $result = $mysqli_connection->query("
-        INSERT INTO transactions (account_id, amount, description, balance_after) 
-        VALUES (
-            " . $args['id'] . ", 
-            -" . $amount . ", 
-            '" . $description . "', 
-            " . $new_balance . "
-        )
-    ");
-
-    if($result){
-      $results['message'] = "Prelievo di $amount effettuato con successo.";
-      $results['new_balance'] = $new_balance;
-    } else {
-      $results['message'] = "Errore durante il prelievo.";
-    }
-
-    $response->getBody()->write(json_encode($results));
-    return $response->withHeader("Content-type", "application/json")->withStatus(200);
-  }
-
-
-
-
-  // =============================================
-  // MODIFICA DESCRIZIONE MOVIMENTO
-  // =============================================
-  public function updateTransaction(Request $request, Response $response, $args){
-    $params = json_decode($request->getBody(), true);
-    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
-  
-    $description = $params['description'];
-
-    // Aggiorniamo SOLO la descrizione per non sballare i saldi (balance_after)
-    $result = $mysqli_connection->query("
-        UPDATE transactions 
-        SET description = '" . $description . "' 
-        WHERE account_id = " . $args['id'] . " 
-        AND id_transaction = " . $args['tid'] . "
-    ");
-
-    if($result){
-      $results['message'] = "Descrizione del movimento aggiornata con successo.";
-    } else {
-      $results['message'] = "Errore durante l'aggiornamento del movimento.";
-    }
-
-    $response->getBody()->write(json_encode($results));
-    return $response->withHeader("Content-type", "application/json")->withStatus(200);
-  }
-
-  // =============================================
-  // ELIMINA MOVIMENTO (Solo l'ultimo)
-  // =============================================
-  public function deleteTransaction(Request $request, Response $response, $args){
-    $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'banking');
-
-    // 1. Trovo qual è l'ID dell'ULTIMO movimento per questo conto
-    $max_result = $mysqli_connection->query("
-        SELECT MAX(id_transaction) 
-        FROM transactions 
-        WHERE account_id = " . $args['id'] . "
-    ");
-    $max_id = $max_result->fetch_row()[0];
-
-    // 2. Controllo se l'id passato corrisponde all'ultimo movimento
-    if ($args['tid'] != $max_id) {
-        $results['message'] = "Operazione negata: e' possibile eliminare solo l'ULTIMO movimento registrato per non corrompere lo storico dei saldi.";
-        $response->getBody()->write(json_encode($results));
-        return $response->withHeader("Content-type", "application/json")->withStatus(403); // Forbidden
-    }
-
-    // 3. Se corrisponde, elimino
-    $result = $mysqli_connection->query("
-        DELETE FROM transactions 
-        WHERE account_id = " . $args['id'] . " 
-        AND id_transaction = " . $args['tid'] . "
-    ");
-
-    if($result){
-      $results['message'] = "Ultimo movimento eliminato con successo.";
-    } else {
-      $results['message'] = "Errore durante l'eliminazione del movimento.";
-    }
-    
-    $response->getBody()->write(json_encode($results));
-    return $response->withHeader("Content-type", "application/json")->withStatus(200);
-  }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-//   public function create(Request $request, Response $response, $args){
-//     $params = json_decode($request -> getBody(), true);
-//     $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'scuola');
-// $result = $mysqli_connection->query("
-//     INSERT INTO `certificazioni` (`alunno_id`, `titolo`, `votazione`, `ente`) 
-//     VALUES (
-//         '" . $args['id'] . "',
-//         '" . $params['titolo'] . "',
-//         '" . $params['votazione'] . "',
-//         '" . $params['ente'] . "'
-//     );
-// ");    if($result){
-//       $results['message'] = "  La certificazione e' stata inserita " ;
-//     }
-//     else{
-
-//       $results['message'] = " lA certificazione NON e' stata inserita" ;
-//     }
-
-//     $response->getBody()->write(json_encode($results));
-//     return $response->withHeader("Content-type", "application/json")->withStatus(200);
-//   }  
-
-  
-
-//   public function update(Request $request, Response $response, $args){
-//     $params = json_decode($request -> getBody(), true);
-//     $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'scuola');
-  
-//   $result = $mysqli_connection->query(
-//     "UPDATE `certificazioni` 
-//      SET `alunno_id` = '" . $args['id'] . "',
-//          `titolo` = '" . $params['titolo'] . "',
-//          `votazione` = '" . $params['votazione'] . "',
-//          `ente` = '" . $params['ente'] . "'
-//      WHERE `id` = " . $args['cid']
-// );
-//     if($result){
-//       $results['message'] = "lo studente è aggiornato  " ;
-//     }
-//     else{
-
-//       $results['message'] = "lo studente NON è stato aggiornato " ;
-//     }
-
-//     $response->getBody()->write(json_encode($results));
-//     return $response->withHeader("Content-type", "application/json")->withStatus(200);
-//   }  
-
-
-//   public function destroy(Request $request, Response $response, $args){
-//     $mysqli_connection = new MySQLi('my_mariadb', 'root', 'ciccio', 'scuola');
-//     $result = $mysqli_connection->query("DELETE FROM certificazioni WHERE alunno_id=".$args['id'] . " and id=" . $args['cid']);
-//     if($result){
-//       $results['message'] = "lo studente " . $args['id']. " rimosso con successo" ;
-//     }
-//     else{
-
-//       $results['message'] = "lo studente " . $args['id']. " NON è rimosso con successo" ;
-//     }
-//     $response->getBody()->write(json_encode($results));
-    
-//     return $response->withHeader("Content-type", "application/json")->withStatus(200);
-//   }
-}
-
-
-
-
